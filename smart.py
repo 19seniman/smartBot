@@ -1,63 +1,3 @@
-import os
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-)
-from dotenv import load_dotenv
-
-load_dotenv()
-
-TOKEN = os.getenv('BOT_TOKEN')
-OWNER_ID = int(os.getenv('OWNER_ID', '0'))  # Set your Telegram user ID in env
-
-if not TOKEN or OWNER_ID == 0:
-    raise EnvironmentError("BOT_TOKEN and OWNER_ID must be set in environment variables")
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-payment_confirmed_users = {}
-pending_sinyal_requests = {}
-payment_image_file_id = None
-payment_text = None
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Halo! Gunakan perintah:\n"
-        "/sinyal - untuk sinyal trading hari ini\n"
-        "/pembayaran - info pembayaran"
-    )
-
-async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    chat_id = update.message.chat_id
-    pending_sinyal_requests[chat_id] = update.message
-    keyboard = [
-        [
-            InlineKeyboardButton("Sinyal tersedia", callback_data=f"sinyal_tersedia_{chat_id}"),
-            InlineKeyboardButton("Sinyal tidak tersedia", callback_data=f"sinyal_tidak_tersedia_{chat_id}")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    try:
-        await context.bot.send_message(
-            OWNER_ID,
-            f"Permintaan sinyal trading hari ini dari @{user.username or user.full_name} (ID: {chat_id}). Pilih jawaban:",
-            reply_markup=reply_markup,
-        )
-        await update.message.reply_text("Permintaan sinyal trading Anda telah dikirim ke pemilik bot. Mohon tunggu konfirmasi.")
-    except Exception as e:
-        logger.error(f"Error sending message to owner: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim permintaan ke pemilik bot.")
-
 async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -70,13 +10,13 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data  # Format: sinyal_tersedia_<chat_id> or sinyal_tidak_tersedia_<chat_id>
     parts = data.split('_')
     
-    if len(parts) != 3:  # Ensure we have exactly 3 parts
+    if len(parts) != 3:  # Memastikan kita memiliki tepat 3 bagian
         await query.edit_message_text("Data callback tidak valid.")
         return
 
-    action = parts[1]  # "tersedia" or "tidak"
+    action = parts[1]  # "tersedia" atau "tidak"
     try:
-        target_chat_id = int(parts[2])  # Convert chat_id to integer
+        target_chat_id = int(parts[2])  # Mengonversi chat_id menjadi integer
     except ValueError:
         await query.edit_message_text("ID pengguna tidak valid.")
         return
@@ -85,10 +25,11 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
         return
 
-    # Remove pending request as it is processed now
+    # Menghapus permintaan yang sedang diproses
     pending_sinyal_requests.pop(target_chat_id)
 
     if action == "tersedia":
+        # Mengirim informasi pembayaran jika tersedia
         if payment_image_file_id and payment_text:
             try:
                 await context.bot.send_photo(chat_id=target_chat_id, photo=payment_image_file_id, caption=payment_text)
@@ -110,49 +51,3 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Terjadi kesalahan saat mengirim pesan ke user.")
     else:
         await query.edit_message_text("Aksi tidak dikenali.")
-
-async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    if chat_id in payment_confirmed_users and payment_confirmed_users[chat_id]:
-        if payment_image_file_id and payment_text:
-            await update.message.reply_photo(photo=payment_image_file_id, caption=payment_text)
-        else:
-            await update.message.reply_text("Info pembayaran belum tersedia.")
-    else:
-        await update.message.reply_text("Anda belum terkonfirmasi pembayaran. Silakan kontak admin.")
-
-async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("Perintah ini hanya bisa dijalankan oleh pemilik bot.")
-        return
-    if not update.message.photo:
-        await update.message.reply_text("Tolong kirim gambar pembayaran bersamaan dengan perintah ini (caption sebagai teks pembayaran).")
-        return
-    global payment_image_file_id, payment_text
-    photo = update.message.photo[-1]
-    payment_image_file_id = photo.file_id
-    payment_text = update.message.caption or "Info pembayaran tidak ada"
-    await update.message.reply_text("Info pembayaran berhasil diperbarui. Mengirimkan info pembayaran ke pengguna terkonfirmasi...")
-    for uid in list(payment_confirmed_users.keys()):
-        try:
-            await context.bot.send_photo(chat_id=uid, photo=payment_image_file_id, caption=payment_text)
-        except Exception as e:
-            logger.error(f"Error sending updated payment info to user {uid}: {e}")
-
-async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal atau /pembayaran.")
-
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("sinyal", sinyal))
-    app.add_handler(CommandHandler("pembayaran", pembayaran))
-    app.add_handler(CommandHandler("setpayment", setpayment))
-    app.add_handler(CallbackQueryHandler(tombol_callback))
-    app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-    print("Bot started...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
