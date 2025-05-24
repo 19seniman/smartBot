@@ -35,7 +35,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/sinyal - untuk sinyal trading hari ini\n"
         "/pembayaran - info pembayaran\n"
         "/metodebayar - info metode pembayaran\n"
-        "/konfirmasi - kirim bukti pembayaran ke admin"
+        "/konfirmasi - kirim bukti pembayaran ke admin\n"
+        "/konfirmasisinyal - kirim sinyal hari ini ke admin dan dapatkan balasan"
     )
 
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,11 +172,12 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     args = context.args
     if not args:
-        await update.message.reply_text("Silakan kirim bukti pembayaran Anda setelah perintah /konfirmasi, contoh:\n/konfirmasi Link atau tulisan bukti pembayaran Anda.")
+        await update.message.reply_text(
+            "Silakan kirim bukti pembayaran Anda setelah perintah /konfirmasi, contoh:\n/konfirmasi Link atau tulisan bukti pembayaran Anda."
+        )
         return
     bukti = ' '.join(args)
     try:
-        # Kirim bukti ke pemilik bot dengan info pengirim
         await context.bot.send_message(
             OWNER_ID,
             f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}"
@@ -183,10 +185,38 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Terima kasih, bukti pembayaran Anda sudah dikirim ke admin.")
     except Exception as e:
         logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim konfirmasi. Silakan coba lagi nanti.")
+        await update.message.reply_text(
+            "Maaf, terjadi kesalahan saat mengirim konfirmasi. Silakan coba lagi nanti."
+        )
+
+async def konfirmasisinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    chat_id = update.message.chat_id
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Silakan kirim sinyal trading hari ini beserta caption setelah perintah /konfirmasisinyal, contoh:\n/konfirmasisinyal Harga naik, beli BTC sekarang!"
+        )
+        return
+    sinyal_text = ' '.join(args)
+    try:
+        # Kirim sinyal ke pemilik bot
+        await context.bot.send_message(
+            OWNER_ID,
+            f"Sinyal trading dari @{user.username or user.full_name} (ID: {chat_id}):\n{sinyal_text}"
+        )
+        # Balas ke pengguna
+        await update.message.reply_text("Terima kasih, sinyal trading Anda sudah dikirim ke admin.")
+    except Exception as e:
+        logger.error(f"Error mengirim konfirmasi sinyal ke owner: {e}")
+        await update.message.reply_text(
+            "Maaf, terjadi kesalahan saat mengirim sinyal. Silakan coba lagi nanti."
+        )
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, /metodebayar, atau /konfirmasi.")
+    await update.message.reply_text(
+        "Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, /metodebayar, /konfirmasi, atau /konfirmasisinyal."
+    )
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -197,6 +227,7 @@ def main():
     app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
     app.add_handler(CommandHandler("metodebayar", metodebayar))
     app.add_handler(CommandHandler("konfirmasi", konfirmasi))
+    app.add_handler(CommandHandler("konfirmasisinyal", konfirmasisinyal))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     print("Bot started...")
