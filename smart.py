@@ -124,6 +124,7 @@ async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Anda belum terkonfirmasi pembayaran. Silakan kontak admin.")
 
+# Updated setpayment handler to correctly receive photo + caption messages from owner
 async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id != OWNER_ID:
@@ -171,6 +172,12 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("sinyal", sinyal))
     app.add_handler(CommandHandler("pembayaran", pembayaran))
+    # Updated to use MessageHandler with filter for /setpayment command plus photo messages
+    app.add_handler(MessageHandler(
+        filters.COMMAND & filters.Regex(r'^/setpayment') & filters.PHOTO,
+        setpayment
+    ))
+    # Also add fallback CommandHandler for setpayment for text-only attempts (optional)
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
     app.add_handler(CommandHandler("metodebayar", metodebayar))
@@ -181,4 +188,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
