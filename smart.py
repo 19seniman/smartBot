@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 payment_confirmed_users = {}
 pending_sinyal_requests = {}
-payment_image_file_id = None
 payment_text = None
 payment_method_text = None  # Variable to store Ethereum wallet address or other payment method info
 
@@ -90,9 +89,10 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending_sinyal_requests.pop(target_chat_id)
 
     if action == "tersedia":
-        if payment_image_file_id and payment_text:
+        global payment_text
+        if payment_text:
             try:
-                await context.bot.send_photo(chat_id=target_chat_id, photo=payment_image_file_id, caption=payment_text)
+                await context.bot.send_message(chat_id=target_chat_id, text=payment_text)
                 payment_confirmed_users[target_chat_id] = True
                 await query.edit_message_text(f"Sinyal trading tersedia. Pembayaran info telah dikirim ke user ID {target_chat_id}.")
             except Exception as e:
@@ -102,7 +102,7 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Sinyal tersedia, tapi data pembayaran belum diset oleh pemilik bot.")
             await context.bot.send_message(
                 OWNER_ID,
-                "Mohon upload gambar pembayaran dan kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran."
+                "Mohon kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran."
             )
     elif action == "tidak":
         try:
@@ -117,30 +117,30 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     if chat_id in payment_confirmed_users and payment_confirmed_users[chat_id]:
-        if payment_image_file_id and payment_text:
-            await update.message.reply_photo(photo=payment_image_file_id, caption=payment_text)
+        global payment_text
+        if payment_text:
+            await update.message.reply_text(payment_text)
         else:
             await update.message.reply_text("Info pembayaran belum tersedia.")
     else:
         await update.message.reply_text("Anda belum terkonfirmasi pembayaran. Silakan kontak admin.")
 
-# Updated setpayment handler to correctly receive photo + caption messages from owner
 async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     if user_id != OWNER_ID:
         await update.message.reply_text("Perintah ini hanya bisa dijalankan oleh pemilik bot.")
         return
-    if not update.message.photo:
-        await update.message.reply_text("Tolong kirim gambar pembayaran bersamaan dengan perintah ini (caption sebagai teks pembayaran).")
+    text = update.message.text
+    parts = text.split(' ', 1)
+    if len(parts) < 2:
+        await update.message.reply_text("Tolong sertakan teks info pembayaran setelah perintah, misal:\n/setpayment Ini adalah info pembayaran saya...")
         return
-    global payment_image_file_id, payment_text
-    photo = update.message.photo[-1]
-    payment_image_file_id = photo.file_id
-    payment_text = update.message.caption or "Info pembayaran tidak ada"
+    global payment_text
+    payment_text = parts[1].strip()
     await update.message.reply_text("Info pembayaran berhasil diperbarui. Mengirimkan info pembayaran ke pengguna terkonfirmasi...")
     for uid in list(payment_confirmed_users.keys()):
         try:
-            await context.bot.send_photo(chat_id=uid, photo=payment_image_file_id, caption=payment_text)
+            await context.bot.send_message(chat_id=uid, text=payment_text)
         except Exception as e:
             logger.error(f"Error sending updated payment info to user {uid}: {e}")
 
@@ -159,6 +159,7 @@ async def setmetodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Metode pembayaran berhasil diperbarui.")
 
 async def metodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global payment_method_text
     if payment_method_text:
         await update.message.reply_text(f"Metode pembayaran:\n{payment_method_text}")
     else:
@@ -172,12 +173,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("sinyal", sinyal))
     app.add_handler(CommandHandler("pembayaran", pembayaran))
-    # Updated to use MessageHandler with filter for /setpayment command plus photo messages
-    app.add_handler(MessageHandler(
-        filters.COMMAND & filters.Regex(r'^/setpayment') & filters.PHOTO,
-        setpayment
-    ))
-    # Also add fallback CommandHandler for setpayment for text-only attempts (optional)
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
     app.add_handler(CommandHandler("metodebayar", metodebayar))
@@ -188,3 +183,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
