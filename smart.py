@@ -34,7 +34,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Halo! Gunakan perintah:\n"
         "/sinyal - untuk sinyal trading hari ini\n"
         "/pembayaran - info pembayaran\n"
-        "/metodebayar - info metode pembayaran"
+        "/metodebayar - info metode pembayaran\n"
+        "/konfirmasi - kirim bukti pembayaran ke admin"
     )
 
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,8 +166,27 @@ async def metodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Info metode pembayaran belum tersedia.")
 
+async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    chat_id = update.message.chat_id
+    args = context.args
+    if not args:
+        await update.message.reply_text("Silakan kirim bukti pembayaran Anda setelah perintah /konfirmasi, contoh:\n/konfirmasi Link atau tulisan bukti pembayaran Anda.")
+        return
+    bukti = ' '.join(args)
+    try:
+        # Kirim bukti ke pemilik bot dengan info pengirim
+        await context.bot.send_message(
+            OWNER_ID,
+            f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}"
+        )
+        await update.message.reply_text("Terima kasih, bukti pembayaran Anda sudah dikirim ke admin.")
+    except Exception as e:
+        logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim konfirmasi. Silakan coba lagi nanti.")
+
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, atau /metodebayar.")
+    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, /metodebayar, atau /konfirmasi.")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -176,6 +196,7 @@ def main():
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
     app.add_handler(CommandHandler("metodebayar", metodebayar))
+    app.add_handler(CommandHandler("konfirmasi", konfirmasi))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     print("Bot started...")
@@ -183,4 +204,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
