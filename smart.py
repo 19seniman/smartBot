@@ -28,7 +28,6 @@ payment_confirmed_users = {}
 pending_sinyal_requests = {}
 payment_text = None
 
-
 # Dictionary to map owner message_id to user chat_id for confirmation replies
 confirmation_reply_mapping = {}
 
@@ -134,6 +133,7 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Mohon kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran.",
             )
     elif action == "tidak":
+        # Notify all pending users about no signal
         await query.edit_message_text("Sinyal trading tidak tersedia telah dikonfirmasi.")
         try:
             for user_chat_id in list(pending_sinyal_requests.keys()):
@@ -201,10 +201,10 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
             OWNER_ID,
             f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}",
         )
-        # Simpan mapping pesan owner ke user chat_id agar dapat membalas
+        # Mapping to allow owner to reply this message back to user
         confirmation_reply_mapping[sent_msg.message_id] = chat_id
         await update.message.reply_text(
-            "Terima kasih, bukti pembayaran Anda sudah dikirim ke admin. Mohon tunggu balasan."
+            "Terima kasih, bukti pembayaran Anda sudah dikirim ke Insider911trading_Bot. Mohon tunggu balasan."
         )
     except Exception as e:
         logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
@@ -230,9 +230,8 @@ async def reply_to_confirmation(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     try:
-        await context.bot.send_message(user_chat_id, f"Balasan dari admin:\n{update.message.text}")
+        await context.bot.send_message(user_chat_id, f"Balasan dari Insider911trading_Bot:\n{update.message.text}")
         await update.message.reply_text("Balasan telah dikirim ke pengguna.")
-        # Hapus mapping setelah membalas
         del confirmation_reply_mapping[replied_msg_id]
     except Exception as e:
         logger.error(f"Error mengirim balasan ke pengguna: {e}")
@@ -254,11 +253,9 @@ def main():
     app.add_handler(CommandHandler("pembayaran", pembayaran))
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("konfirmasi", konfirmasi))
-    # Handler untuk membalas konfirmasi pembayaran dari owner
     app.add_handler(MessageHandler(filters.TEXT & filters.User(OWNER_ID), reply_to_confirmation))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-
     print("Bot started...")
     app.run_polling()
 
