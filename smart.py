@@ -61,21 +61,33 @@ async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     user_id = query.from_user.id
     if user_id != OWNER_ID:
         await query.edit_message_text("Anda bukan pemilik bot. Akses ditolak.")
         return
-    data = query.data
+
+    data = query.data  # Format: sinyal_tersedia_<chat_id> or sinyal_tidak_tersedia_<chat_id>
     parts = data.split('_')
-    if len(parts) < 3:
+    
+    if len(parts) != 3:  # Ensure we have exactly 3 parts
         await query.edit_message_text("Data callback tidak valid.")
         return
-    action = parts[1]
-    target_chat_id = int(parts[2])
+
+    action = parts[1]  # "tersedia" or "tidak"
+    try:
+        target_chat_id = int(parts[2])  # Convert chat_id to integer
+    except ValueError:
+        await query.edit_message_text("ID pengguna tidak valid.")
+        return
+
     if target_chat_id not in pending_sinyal_requests:
         await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
         return
+
+    # Remove pending request as it is processed now
     pending_sinyal_requests.pop(target_chat_id)
+
     if action == "tersedia":
         if payment_image_file_id and payment_text:
             try:
