@@ -28,6 +28,8 @@ payment_confirmed_users = {}
 pending_sinyal_requests = {}
 payment_text = None
 
+# Mapping from owner's forwarded message_id to original user chat_id
+waiting_confirmations = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -36,7 +38,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/pembayaran - info pembayaran\n"
         "/konfirmasi - kirim bukti pembayaran ke admin"
     )
-
 
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -50,7 +51,7 @@ async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Sinyal tersedia", callback_data=f"sinyal_tersedia_{chat_id}"
             ),
             InlineKeyboardButton(
-                "Sinyal tidak tersedia", callback_data="sinyal_tidak_tersedia"
+                "Sinyal tidak tersedia", callback_data=f"sinyal_tidak_tersedia_{chat_id}"
             ),
         ]
     ]
@@ -82,47 +83,49 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Anda bukan pemilik bot. Akses ditolak.")
         return
 
-    data = query.data  # Example: sinyal_tersedia_123456789 or sinyal_tidak_tersedia
+    data = query.data  
     logger.info(f"Received callback data: {data}")
 
-    parts = data.split("_", 2)  # limit split to max 3 parts
+    parts = data.split("_", 2)  
 
-    action = parts[0] if len(parts) > 0 else None
-    status = parts[1] if len(parts) > 1 else None
-    target_chat_id_str = parts[2] if len(parts) > 2 else None
+    if len(parts) != 3:
+        await query.edit_message_text(f"Data callback tidak valid. Data diterima: {data}")
+        return
 
-    if action != "sinyal":
+    prefix, action, target_chat_id_str = parts
+
+    if prefix != "sinyal":
         await query.edit_message_text("Data callback tidak valid (prefix salah).")
         return
 
+    if action not in {"tersedia", "tidak"}:
+        await query.edit_message_text("Aksi callback tidak dikenali.")
+        return
+
+    try:
+        target_chat_id = int(target_chat_id_str)
+    except ValueError:
+        await query.edit_message_text("ID pengguna tidak valid.")
+        return
+
+    if target_chat_id not in pending_sinyal_requests:
+        await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
+        return
+
+    pending_sinyal_requests.pop(target_chat_id)
+
     global payment_text
 
-    if status == "tersedia":
-        if target_chat_id_str is None:
-            await query.edit_message_text("ID pengguna tidak ditemukan.")
-            return
-        try:
-            target_chat_id = int(target_chat_id_str)
-        except ValueError:
-            await query.edit_message_text("ID pengguna tidak valid.")
-            return
-        if target_chat_id not in pending_sinyal_requests:
-            await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
-            return
-        pending_sinyal_requests.pop(target_chat_id)
+    if action == "tersedia":
         if payment_text:
             try:
-                await context.bot.send_message(
-                    chat_id=target_chat_id, text=payment_text
-                )
+                await context.bot.send_message(chat_id=target_chat_id, text=payment_text)
                 payment_confirmed_users[target_chat_id] = True
                 await query.edit_message_text(
                     f"Sinyal trading tersedia. Pembayaran info telah dikirim ke user ID {target_chat_id}."
                 )
             except Exception as e:
-                logger.error(
-                    f"Error sending payment info to user {target_chat_id}: {e}"
-                )
+                logger.error(f"Error sending payment info to user {target_chat_id}: {e}")
                 await query.edit_message_text(
                     f"Gagal mengirim info pembayaran ke user ID {target_chat_id}."
                 )
@@ -134,22 +137,18 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 OWNER_ID,
                 "Mohon kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran.",
             )
-    elif status == "tidak":
-        # For 'tidak' status, no target_chat_id expected, send a general message
-        await query.edit_message_text("Sinyal trading tidak tersedia telah dikonfirmasi.")
+    else:  # action == "tidak"
         try:
-            # Optionally notify all users waiting for signal that it's not available
-            for chat_id in list(pending_sinyal_requests.keys()):
-                await context.bot.send_message(
-                    chat_id,
-                    "Maaf sinyal hari ini tidak tersedia/sedang padat pengguna. Mohon coba lagi beberapa jam ke depan.",
-                )
-            # Clear all pending requests after notifying
-            pending_sinyal_requests.clear()
+            await context.bot.send_message(
+                target_chat_id,
+                "Maaf sinyal hari ini tidak tersedia/sedang padat pengguna. Mohon coba lagi beberapa jam ke depan.",
+            )
+            await query.edit_message_text(
+                f"Sinyal trading tidak tersedia untuk user ID {target_chat_id} telah dikonfirmasi."
+            )
         except Exception as e:
-            logger.error(f"Error notifying users about no signal: {e}")
-    else:
-        await query.edit_message_text("Aksi callback tidak dikenali.")
+            logger.error(f"Error notifying user {target_chat_id} about no signal: {e}")
+            await query.edit_message_text("Terjadi kesalahan saat mengirim pesan ke user.")
 
 
 async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -201,12 +200,15 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     bukti = " ".join(args)
     try:
-        await context.bot.send_message(
+        # Forward the confirmation to the owner and save message id and user chat id mapping
+        sent_message = await context.bot.send_message(
             OWNER_ID,
             f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}",
         )
+        # Save mapping from owner message id to user chat id
+        waiting_confirmations[sent_message.message_id] = chat_id
         await update.message.reply_text(
-            "Terima kasih, bukti pembayaran Anda sudah dikirim ke admin."
+            "Terima kasih, bukti pembayaran Anda sudah dikirim ke admin. Mohon tunggu balasan."
         )
     except Exception as e:
         logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
@@ -215,11 +217,45 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def reply_to_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    # Only owner can reply
+    if user_id != OWNER_ID:
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Mohon balas pesan konfirmasi pembayaran pengguna.")
+        return
+
+    replied_message_id = update.message.reply_to_message.message_id
+    # Check if this replied message_id is in waiting_confirmations
+    original_user_chat_id = waiting_confirmations.get(replied_message_id)
+
+    if not original_user_chat_id:
+        await update.message.reply_text(
+            "Pesan yang dibalas bukan pesan konfirmasi yang sah."
+        )
+        return
+
+    try:
+        await context.bot.send_message(
+            original_user_chat_id, f"Balasan dari admin:\n{update.message.text}"
+        )
+        await update.message.reply_text("Balasan telah dikirim ke pengguna.")
+        # Optionally remove the mapping after reply
+        del waiting_confirmations[replied_message_id]
+    except Exception as e:
+        logger.error(f"Error mengirim balasan ke pengguna: {e}")
+        await update.message.reply_text("Gagal mengirim balasan ke pengguna.")
+
+
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, atau /konfirmasi."
     )
 
+
+waiting_confirmations = {}
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -228,12 +264,13 @@ def main():
     app.add_handler(CommandHandler("pembayaran", pembayaran))
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("konfirmasi", konfirmasi))
+    app.add_handler(MessageHandler(filters.TEXT & filters.User(OWNER_ID), reply_to_konfirmasi))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+
     print("Bot started...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
