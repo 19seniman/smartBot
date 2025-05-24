@@ -28,8 +28,6 @@ payment_confirmed_users = {}
 pending_sinyal_requests = {}
 payment_text = None
 
-# Mapping from owner's forwarded message_id to original user chat_id
-waiting_confirmations = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -38,6 +36,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/pembayaran - info pembayaran\n"
         "/konfirmasi - kirim bukti pembayaran ke admin"
     )
+
 
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
@@ -64,7 +63,7 @@ async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
         )
         await update.message.reply_text(
-            "Permintaan sinyal trading Anda telah dikirim ke pemilik bot. Mohon tunggu konfirmasi."
+            "Permintaan sinyal trading Anda telah dikirim ke Insider911trading_Bot. Mohon tunggu konfirmasi dan jangan tekan /konfirmasi sebelum balasan ini diterima."
         )
     except Exception as e:
         logger.error(f"Error sending message to owner: {e}")
@@ -87,10 +86,6 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received callback data: {data}")
 
     parts = data.split("_", 2)  
-
-    if len(parts) != 3:
-        await query.edit_message_text(f"Data callback tidak valid. Data diterima: {data}")
-        return
 
     prefix, action, target_chat_id_str = parts
 
@@ -200,15 +195,12 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     bukti = " ".join(args)
     try:
-        # Forward the confirmation to the owner and save message id and user chat id mapping
-        sent_message = await context.bot.send_message(
+        await context.bot.send_message(
             OWNER_ID,
             f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}",
         )
-        # Save mapping from owner message id to user chat id
-        waiting_confirmations[sent_message.message_id] = chat_id
         await update.message.reply_text(
-            "Terima kasih, bukti pembayaran Anda sudah dikirim ke admin. Mohon tunggu balasan."
+            "Terima kasih, bukti pembayaran Anda sudah dikirim ke admin."
         )
     except Exception as e:
         logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
@@ -217,45 +209,11 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def reply_to_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    # Only owner can reply
-    if user_id != OWNER_ID:
-        return
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Mohon balas pesan konfirmasi pembayaran pengguna.")
-        return
-
-    replied_message_id = update.message.reply_to_message.message_id
-    # Check if this replied message_id is in waiting_confirmations
-    original_user_chat_id = waiting_confirmations.get(replied_message_id)
-
-    if not original_user_chat_id:
-        await update.message.reply_text(
-            "Pesan yang dibalas bukan pesan konfirmasi yang sah."
-        )
-        return
-
-    try:
-        await context.bot.send_message(
-            original_user_chat_id, f"Balasan dari admin:\n{update.message.text}"
-        )
-        await update.message.reply_text("Balasan telah dikirim ke pengguna.")
-        # Optionally remove the mapping after reply
-        del waiting_confirmations[replied_message_id]
-    except Exception as e:
-        logger.error(f"Error mengirim balasan ke pengguna: {e}")
-        await update.message.reply_text("Gagal mengirim balasan ke pengguna.")
-
-
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, atau /konfirmasi."
     )
 
-
-waiting_confirmations = {}
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -264,10 +222,8 @@ def main():
     app.add_handler(CommandHandler("pembayaran", pembayaran))
     app.add_handler(CommandHandler("setpayment", setpayment))
     app.add_handler(CommandHandler("konfirmasi", konfirmasi))
-    app.add_handler(MessageHandler(filters.TEXT & filters.User(OWNER_ID), reply_to_konfirmasi))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
-
     print("Bot started...")
     app.run_polling()
 
