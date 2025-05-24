@@ -16,6 +16,10 @@ python3 -m venv smartBot
 source smartBot/bin/activate
 ```
 ```
+pip3 install python-telegram-bot python-dotenv
+```
+
+```
 nano .env
 
 simpan dengan ctrl x y enter
