@@ -28,12 +28,14 @@ payment_confirmed_users = {}
 pending_sinyal_requests = {}
 payment_image_file_id = None
 payment_text = None
+payment_method_text = None  # Variable to store Ethereum wallet address or other payment method info
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Halo! Gunakan perintah:\n"
         "/sinyal - untuk sinyal trading hari ini\n"
-        "/pembayaran - info pembayaran"
+        "/pembayaran - info pembayaran\n"
+        "/metodebayar - info metode pembayaran"
     )
 
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,14 +71,14 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data  # Format: sinyal_tersedia_<chat_id> or sinyal_tidak_tersedia_<chat_id>
     parts = data.split('_')
-    
-    if len(parts) != 3:  # Memastikan kita memiliki tepat 3 bagian
+
+    if len(parts) != 3:
         await query.edit_message_text("Data callback tidak valid.")
         return
 
     action = parts[1]  # "tersedia" atau "tidak"
     try:
-        target_chat_id = int(parts[2])  # Mengonversi chat_id menjadi integer
+        target_chat_id = int(parts[2])
     except ValueError:
         await query.edit_message_text("ID pengguna tidak valid.")
         return
@@ -85,7 +87,6 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
         return
 
-    # Menghapus permintaan yang sedang diproses
     pending_sinyal_requests.pop(target_chat_id)
 
     if action == "tersedia":
@@ -99,8 +100,10 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text(f"Gagal mengirim info pembayaran ke user ID {target_chat_id}.")
         else:
             await query.edit_message_text("Sinyal tersedia, tapi data pembayaran belum diset oleh pemilik bot.")
-            await context.bot.send_message(OWNER_ID, 
-                "Mohon upload gambar pembayaran dan kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran.")
+            await context.bot.send_message(
+                OWNER_ID,
+                "Mohon upload gambar pembayaran dan kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran."
+            )
     elif action == "tidak":
         try:
             await context.bot.send_message(target_chat_id, "Maaf sinyal hari ini tidak tersedia.")
@@ -140,8 +143,28 @@ async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error sending updated payment info to user {uid}: {e}")
 
+async def setmetodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Perintah ini hanya bisa dijalankan oleh pemilik bot.")
+        return
+    text = update.message.text
+    parts = text.split(' ', 1)
+    if len(parts) < 2:
+        await update.message.reply_text("Tolong sertakan teks metode pembayaran setelah perintah, misal:\n/setmetodebayar Wallet Ethereum: 0x123abc...")
+        return
+    global payment_method_text
+    payment_method_text = parts[1].strip()
+    await update.message.reply_text("Metode pembayaran berhasil diperbarui.")
+
+async def metodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if payment_method_text:
+        await update.message.reply_text(f"Metode pembayaran:\n{payment_method_text}")
+    else:
+        await update.message.reply_text("Info metode pembayaran belum tersedia.")
+
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal atau /pembayaran.")
+    await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, atau /metodebayar.")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -149,6 +172,8 @@ def main():
     app.add_handler(CommandHandler("sinyal", sinyal))
     app.add_handler(CommandHandler("pembayaran", pembayaran))
     app.add_handler(CommandHandler("setpayment", setpayment))
+    app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
+    app.add_handler(CommandHandler("metodebayar", metodebayar))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     print("Bot started...")
@@ -156,3 +181,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
