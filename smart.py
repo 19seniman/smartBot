@@ -50,7 +50,7 @@ async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Sinyal tersedia", callback_data=f"sinyal_tersedia_{chat_id}"
             ),
             InlineKeyboardButton(
-                "Sinyal tidak tersedia", callback_data=f"sinyal_tidak_tersedia_{chat_id}"
+                "Sinyal tidak tersedia", callback_data="sinyal_tidak_tersedia"  # No chat_id here
             ),
         ]
     ]
@@ -82,36 +82,34 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Anda bukan pemilik bot. Akses ditolak.")
         return
 
-    data = query.data  
+    data = query.data  # Example: sinyal_tersedia_123456789 or sinyal_tidak_tersedia
     logger.info(f"Received callback data: {data}")
 
-    parts = data.split("_", 2)  
+    parts = data.split("_", 2)  # limit split to max 3 parts
 
-    prefix, action, target_chat_id_str = parts
+    prefix = parts[0] if len(parts) > 0 else None
+    action = parts[1] if len(parts) > 1 else None
+    target_chat_id_str = parts[2] if len(parts) > 2 else None
 
     if prefix != "sinyal":
         await query.edit_message_text("Data callback tidak valid (prefix salah).")
         return
 
-    if action not in {"tersedia", "tidak"}:
-        await query.edit_message_text("Aksi callback tidak dikenali.")
-        return
-
-    try:
-        target_chat_id = int(target_chat_id_str)
-    except ValueError:
-        await query.edit_message_text("ID pengguna tidak valid.")
-        return
-
-    if target_chat_id not in pending_sinyal_requests:
-        await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
-        return
-
-    pending_sinyal_requests.pop(target_chat_id)
-
     global payment_text
 
     if action == "tersedia":
+        if target_chat_id_str is None:
+            await query.edit_message_text("ID pengguna tidak ditemukan.")
+            return
+        try:
+            target_chat_id = int(target_chat_id_str)
+        except ValueError:
+            await query.edit_message_text("ID pengguna tidak valid.")
+            return
+        if target_chat_id not in pending_sinyal_requests:
+            await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
+            return
+        pending_sinyal_requests.pop(target_chat_id)
         if payment_text:
             try:
                 await context.bot.send_message(chat_id=target_chat_id, text=payment_text)
@@ -132,18 +130,20 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 OWNER_ID,
                 "Mohon kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran.",
             )
-    else:  # action == "tidak"
+    elif action == "tidak":
+        # For "tidak" action, send a general message to all pending users and clear list
+        await query.edit_message_text("Sinyal trading tidak tersedia telah dikonfirmasi.")
         try:
-            await context.bot.send_message(
-                target_chat_id,
-                "Maaf sinyal hari ini tidak tersedia/sedang padat pengguna. Mohon coba lagi beberapa jam ke depan.",
-            )
-            await query.edit_message_text(
-                f"Sinyal trading tidak tersedia untuk user ID {target_chat_id} telah dikonfirmasi."
-            )
+            for user_chat_id in list(pending_sinyal_requests.keys()):
+                await context.bot.send_message(
+                    user_chat_id,
+                    "Maaf sinyal hari ini tidak tersedia/sedang padat pengguna. Mohon coba lagi beberapa jam ke depan.",
+                )
+            pending_sinyal_requests.clear()
         except Exception as e:
-            logger.error(f"Error notifying user {target_chat_id} about no signal: {e}")
-            await query.edit_message_text("Terjadi kesalahan saat mengirim pesan ke user.")
+            logger.error(f"Error notifying users about no signal: {e}")
+    else:
+        await query.edit_message_text("Aksi callback tidak dikenali.")
 
 
 async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
