@@ -1,12 +1,12 @@
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
     CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
+    MessageHandler,
     filters,
 )
 from dotenv import load_dotenv
@@ -41,7 +41,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/pembayaran - info pembayaran"
     )
 
-
 async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     chat_id = update.message.chat_id
@@ -68,7 +67,6 @@ async def sinyal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error sending message to owner: {e}")
         await update.message.reply_text("Maaf, terjadi kesalahan saat mengirim permintaan ke pemilik bot.")
 
-
 async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -90,27 +88,32 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Permintaan sudah diproses atau tidak ditemukan.")
         return
 
-    original_message = pending_sinyal_requests.pop(target_chat_id)
+    # Remove pending request as it is processed now
+    pending_sinyal_requests.pop(target_chat_id)
 
     if action == "tersedia":
         # Send payment info to user (only if payment info set)
         if payment_image_file_id and payment_text:
-            # Mark user as needing payment confirmation (simulate approved after manual confirmation)
-            # In this case, give payment details
-            await context.bot.send_photo(chat_id=target_chat_id, photo=payment_image_file_id, caption=payment_text)
-            payment_confirmed_users[target_chat_id] = True
-            await query.edit_message_text(f"Sinyal trading tersedia. Pembayaran info telah dikirim ke user ID {target_chat_id}.")
-            # Optionally notify owner to confirm payment later
+            try:
+                await context.bot.send_photo(chat_id=target_chat_id, photo=payment_image_file_id, caption=payment_text)
+                payment_confirmed_users[target_chat_id] = True
+                await query.edit_message_text(f"Sinyal trading tersedia. Pembayaran info telah dikirim ke user ID {target_chat_id}.")
+            except Exception as e:
+                logger.error(f"Error sending payment info to user {target_chat_id}: {e}")
+                await query.edit_message_text(f"Gagal mengirim info pembayaran ke user ID {target_chat_id}.")
         else:
             await query.edit_message_text("Sinyal tersedia, tapi data pembayaran belum diset oleh pemilik bot.")
             await context.bot.send_message(OWNER_ID, 
                 "Mohon upload gambar pembayaran dan kirim teks pembayaran dengan perintah /setpayment untuk mengupdate info pembayaran.")
     elif action == "tidak":
-        await context.bot.send_message(target_chat_id, "Sinyal hari ini tidak tersedia.")
-        await query.edit_message_text(f"Sinyal trading tidak tersedia untuk user ID {target_chat_id} telah dikonfirmasi.")
+        try:
+            await context.bot.send_message(target_chat_id, "Sinyal hari ini tidak tersedia.")
+            await query.edit_message_text(f"Sinyal trading tidak tersedia untuk user ID {target_chat_id} telah dikonfirmasi.")
+        except Exception as e:
+            logger.error(f"Error notifying user {target_chat_id} about no signal: {e}")
+            await query.edit_message_text("Terjadi kesalahan saat mengirim pesan ke user.")
     else:
         await query.edit_message_text("Aksi tidak dikenali.")
-
 
 async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
@@ -121,7 +124,6 @@ async def pembayaran(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Info pembayaran belum tersedia.")
     else:
         await update.message.reply_text("Anda belum terkonfirmasi pembayaran. Silakan kontak admin.")
-
 
 async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Owner command to set/update payment info with image and caption text."""
@@ -143,12 +145,17 @@ async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Use message caption as payment text
     payment_text = update.message.caption or "Info pembayaran tidak ada"
 
-    await update.message.reply_text("Info pembayaran berhasil diperbarui.")
+    await update.message.reply_text("Info pembayaran berhasil diperbarui. Mengirimkan info pembayaran ke pengguna terkonfirmasi...")
 
+    # Send updated payment info to all confirmed users
+    for user_id in list(payment_confirmed_users.keys()):
+        try:
+            await context.bot.send_photo(chat_id=user_id, photo=payment_image_file_id, caption=payment_text)
+        except Exception as e:
+            logger.error(f"Error sending updated payment info to user {user_id}: {e}")
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Perintah tidak dikenali. Gunakan /sinyal atau /pembayaran.")
-
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -162,7 +169,6 @@ def main():
 
     print("Bot started...")
     app.run_polling()
-
 
 if __name__ == '__main__':
     main()
