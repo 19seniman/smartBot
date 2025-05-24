@@ -27,17 +27,12 @@ logger = logging.getLogger(__name__)
 payment_confirmed_users = {}
 pending_sinyal_requests = {}
 payment_text = None
-payment_method_text = None  # Variable to store Ethereum wallet address or other payment method info
-
-# Temporary storage for waiting confirmations, map from user_id to update.message
-waiting_confirmations = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Halo! Gunakan perintah:\n"
         "/sinyal - untuk sinyal trading hari ini\n"
         "/pembayaran - info pembayaran\n"
-        "/metodebayar - info metode pembayaran\n"
         "/konfirmasi - kirim bukti pembayaran ke admin"
     )
 
@@ -110,7 +105,10 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     elif action == "tidak":
         try:
-            await context.bot.send_message(target_chat_id, "Maaf sinyal hari ini tidak tersedia.")
+            await context.bot.send_message(
+                target_chat_id, 
+                "Maaf sinyal hari ini tidak tersedia/sedang padat pengguna. Mohon coba lagi beberapa jam ke depan."
+            )
             await query.edit_message_text(f"Sinyal trading tidak tersedia untuk user ID {target_chat_id} telah dikonfirmasi.")
         except Exception as e:
             logger.error(f"Error notifying user {target_chat_id} about no signal: {e}")
@@ -148,27 +146,6 @@ async def setpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error sending updated payment info to user {uid}: {e}")
 
-async def setmetodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("Perintah ini hanya bisa dijalankan oleh pemilik bot.")
-        return
-    text = update.message.text
-    parts = text.split(' ', 1)
-    if len(parts) < 2:
-        await update.message.reply_text("Tolong sertakan teks metode pembayaran setelah perintah, misal:\n/setmetodebayar Wallet Ethereum: 0x123abc...")
-        return
-    global payment_method_text
-    payment_method_text = parts[1].strip()
-    await update.message.reply_text("Metode pembayaran berhasil diperbarui.")
-
-async def metodebayar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global payment_method_text
-    if payment_method_text:
-        await update.message.reply_text(f"Metode pembayaran:\n{payment_method_text}")
-    else:
-        await update.message.reply_text("Info metode pembayaran belum tersedia.")
-
 async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     chat_id = update.message.chat_id
@@ -180,64 +157,21 @@ async def konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     bukti = ' '.join(args)
     try:
-        # Kirim bukti konfirmasi ke pemilik bot
         await context.bot.send_message(
             OWNER_ID,
             f"Konfirmasi pembayaran dari @{user.username or user.full_name} (ID: {chat_id}):\n{bukti}"
         )
-        # Simpan update.message utk menunggu balasan pemilik
-        waiting_confirmations[OWNER_ID] = {
-            'from_user_id': chat_id,
-            'from_user_name': user.username or user.full_name,
-            'message': update.message,
-        }
-        await update.message.reply_text("Terima kasih, bukti pembayaran Anda sudah dikirim ke admin. Mohon tunggu balasan konfirmasi.")
+        await update.message.reply_text("Terima kasih, bukti pembayaran Anda sudah dikirim ke admin.")
     except Exception as e:
         logger.error(f"Error mengirim konfirmasi pembayaran ke owner: {e}")
         await update.message.reply_text(
             "Maaf, terjadi kesalahan saat mengirim konfirmasi. Silakan coba lagi nanti."
         )
 
-async def balas_konfirmasi(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler khusus untuk pemilik bot membalas konfirmasi pembayaran pengguna."""
-    user_id = update.message.from_user.id
-    if user_id != OWNER_ID:
-        return  # Hanya pemilik bot yang boleh
-
-    if not update.message.reply_to_message:
-        await update.message.reply_text("Mohon balas pesan konfirmasi pembayaran pengguna untuk membalas.")
-        return
-
-    replied = update.message.reply_to_message
-    # Cek apakah pesan yang dibalas adalah pesan bot yang meneruskan konfirmasi pembayaran
-    # Kita simpan data pengguna berdasarkan last konfirmasi disimpan di waiting_confirmations (lebih baik pakai DB sebenarnya)
-    # Namun di sini memakai mekanisme sederhana: cari key user_id dan cocokkan user chat_id dari pesan
-    # Karena ini kasus sederhana, kita mengirim balasan ke user yang mengirim konfirmasi terakhir
-
-    # Cari user yang difokuskan oleh balasan ini dari waiting_confirmations
-    # Cari first user yang belum dikonfirmasi dengan key OWNER_ID
-    info = waiting_confirmations.get(OWNER_ID)
-    if not info:
-        await update.message.reply_text("Tidak ada konfirmasi pembayaran pengguna yang sedang menunggu balasan.")
-        return
-
-    to_user_id = info['from_user_id']
-    try:
-        # Kirim balasan ke pengguna
-        await context.bot.send_message(to_user_id, f"Pesan dari admin:\n{update.message.text}")
-        await update.message.reply_text("Balasan konfirmasi telah dikirim ke pengguna.")
-        # Hapus dari waiting_confirmations agar tidak dikirim ulang
-        waiting_confirmations.pop(OWNER_ID, None)
-    except Exception as e:
-        logger.error(f"Error mengirim balasan konfirmasi ke user {to_user_id}: {e}")
-        await update.message.reply_text("Gagal mengirim balasan ke pengguna.")
-
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, /metodebayar, atau /konfirmasi."
+        "Perintah tidak dikenali. Gunakan /sinyal, /pembayaran, atau /konfirmasi."
     )
-
-waiting_confirmations = {}
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -245,11 +179,7 @@ def main():
     app.add_handler(CommandHandler("sinyal", sinyal))
     app.add_handler(CommandHandler("pembayaran", pembayaran))
     app.add_handler(CommandHandler("setpayment", setpayment))
-    app.add_handler(CommandHandler("setmetodebayar", setmetodebayar))
-    app.add_handler(CommandHandler("metodebayar", metodebayar))
     app.add_handler(CommandHandler("konfirmasi", konfirmasi))
-    # Handler untuk pemilik membalas pesan konfirmasi pembayaran pengguna dengan membalas pesan itu
-    app.add_handler(MessageHandler(filters.TEXT & filters.User(OWNER_ID), balas_konfirmasi))
     app.add_handler(CallbackQueryHandler(tombol_callback))
     app.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     print("Bot started...")
