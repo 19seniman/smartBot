@@ -110,6 +110,7 @@ async def tombol_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_chat_id = int(target_chat_id_str)
     except ValueError:
         await query.edit_message_text("ID pengguna tidak valid.")
+        logger.error(f"Failed to convert target_chat_id to int: {target_chat_id_str}")
         return
 
     if target_chat_id not in pending_sinyal_requests:
