@@ -6,7 +6,7 @@
 ### install
 
 ```clone repositori
-git clone https://github.com/19seniman/absen.git
+git clone https://github.com/19seniman/smartBot.git
 ```
 ```
 cd smartBot
